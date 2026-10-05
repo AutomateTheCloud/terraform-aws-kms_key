@@ -1,4 +1,8 @@
+# Copyright 2025 Automate the Cloud Inc.
+# SPDX-License-Identifier: Apache-2.0
+
 resource "aws_kms_key" "this" {
+  region                             = var.region
   description                        = var.description
   bypass_policy_lockout_safety_check = var.bypass_policy_lockout_safety_check
   custom_key_store_id                = var.custom_key_store_id
@@ -8,129 +12,21 @@ resource "aws_kms_key" "this" {
   key_usage                          = var.key_usage
   multi_region                       = var.multi_region
 
-  policy = jsonencode(jsondecode(data.aws_iam_policy_document.kms_key-this.json))
+  policy = jsonencode({
+    Version   = "2012-10-17"
+    Statement = local.kms_key_policy_statements
+  })
 
-  tags = merge(
-    local.tags
-  )
-  provider = aws.this
-}
+  tags = local.tags
 
-data "aws_iam_policy_document" "kms_key-this" {
-  statement {
-    sid    = "Enable IAM User Permissions"
-    effect = "Allow"
-    principals {
-      type        = "AWS"
-      identifiers = local.owner_list
-    }
-    actions = [
-      "kms:*"
-    ]
-    resources = [
-      "*"
-    ]
-  }
+  lifecycle {
+    # A change that replaces the key creates the new one, and moves the alias to it,
+    # before the old one is scheduled for deletion.
+    create_before_destroy = true
 
-  dynamic "statement" {
-    for_each = length(local.share_list) > 0 ? [1] : []
-    content {
-      sid    = "Allow Use of the Key"
-      effect = "Allow"
-      principals {
-        type        = "AWS"
-        identifiers = local.share_list
-      }
-      actions = [
-        "kms:Decrypt",
-        "kms:DescribeKey",
-        "kms:Encrypt",
-        "kms:GenerateDataKey*",
-        "kms:GetKeyPolicy",
-        "kms:ReEncrypt*",
-      ]
-      resources = [
-        "*"
-      ]
+    precondition {
+      condition     = length(local.kms_key_policy_sids) == length(distinct(local.kms_key_policy_sids))
+      error_message = "Key policy statement IDs (Sid) must be unique. Check policy.source_policy_documents against the module's own statements: ${join(", ", local.kms_key_policy_sids)}."
     }
   }
-
-  dynamic "statement" {
-    for_each = length(local.share_list) > 0 ? [1] : []
-    content {
-      sid    = "Allow Attachment of Persistent Resources"
-      effect = "Allow"
-      principals {
-        type        = "AWS"
-        identifiers = local.share_list
-      }
-      actions = [
-        "kms:CreateGrant",
-        "kms:ListGrants",
-        "kms:RevokeGrant"
-      ]
-      resources = [
-        "*"
-      ]
-      condition {
-        test     = "Bool"
-        variable = "kms:GrantIsForAWSResource"
-        values   = ["true"]
-      }
-    }
-  }
-
-  dynamic "statement" {
-    for_each = var.enable_share_with_organization ? [1] : []
-    content {
-      sid    = "Allow Use of the Key with Organization"
-      effect = "Allow"
-      principals {
-        type        = "AWS"
-        identifiers = ["*"]
-      }
-      actions = [
-        "kms:Decrypt",
-        "kms:DescribeKey",
-        "kms:Encrypt",
-        "kms:GenerateDataKey*",
-        "kms:GetKeyPolicy",
-        "kms:ReEncrypt*",
-      ]
-      resources = [
-        "*"
-      ]
-      condition {
-        test     = "StringEquals"
-        variable = "aws:PrincipalOrgID"
-        values   = [data.aws_organizations_organization.this[0].arn]
-      }
-    }
-  }
-
-  dynamic "statement" {
-    for_each = var.enable_sns_publish ? [1] : []
-    content {
-      sid    = "Allow Publish from SNS"
-      effect = "Allow"
-      principals {
-        type        = "Service"
-        identifiers = ["sns.amazonaws.com"]
-      }
-      actions = [
-        "kms:GenerateDataKey",
-        "kms:Decrypt",
-      ]
-      resources = [
-        "*"
-      ]
-      condition {
-        test     = "StringEquals"
-        variable = "aws:SourceAccount"
-        values   = [data.aws_caller_identity.this.account_id]
-      }
-    }
-  }
-
-  provider = aws.this
 }
