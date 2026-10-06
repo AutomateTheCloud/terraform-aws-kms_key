@@ -1,4 +1,4 @@
-# Copyright 2025 Automate the Cloud Inc.
+# Copyright 2026 Automate the Cloud Inc.
 # SPDX-License-Identifier: Apache-2.0
 
 # No providers block anywhere in this file: the module uses the default aws provider.
